@@ -7,7 +7,7 @@
   <h2 class="dash-title">Appointment Booking Confirmation</h2>
   <section class="recent">
     <div class="table-div bg-white">
-      <div >
+      <div>
         <div class="container">
           <div class="row">
             <div class="col-md-10 border p-4 shadow text-black" style="width: 100%; border-radius: 20px">
@@ -43,10 +43,13 @@
                   </div>
                   <div class="col-md-12 mt-3">
                     <label for="message" style="color: black">Description:</label><br />
-                    <textarea class="form-control" id="message" name="description"style="resize: vertical;"></textarea>
+                    <textarea class="form-control" id="message" name="description" style="resize: vertical;"></textarea>
                   </div>
                   <div class="col-12 mt-5">
-                    <button type="submit" class="btn btn-success float-end">Book Appointment</button>
+                    <div class="d-flex justify-content-between">
+                      <a href="{% url 'book_appointment' %}" class="btn btn-secondary px-4">Cancel</a>
+                      <button type="submit" class="btn btn-success px-4">Book Appointment</button>
+                    </div>
                   </div>
                 </div>
               </form>

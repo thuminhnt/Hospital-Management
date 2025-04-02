@@ -70,10 +70,28 @@
         <li>
           <a href="{% url 'view_appointments' %}">
             <i class="bi bi-file-medical-fill"></i> 
-            <span>&nbsp;&nbsp;view appointments</span>
+            <span>&nbsp;&nbsp;View appointments</span>
           </a>
         </li>
-        
+        <li>
+          <a href="{% url 'medicine_list' %}">
+            <i class="bi bi-capsule"></i> 
+            <span>&nbsp;&nbsp;Pharmacy Inventory</span>
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'create_prescription' %}">
+            <i class="bi bi-file-earmark-text"></i> 
+            <span>&nbsp;&nbsp;Medication Prescription</span>
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'doctor_prescriptions' %}">
+            <i class="bi bi-list-check"></i> 
+            <span>&nbsp;&nbsp;Prescribed prescriptions</span>
+          </a>
+        </li>
+
         <br><br>
 
         <li>

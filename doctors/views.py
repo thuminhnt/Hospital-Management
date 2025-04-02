@@ -4,46 +4,41 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.core.paginator import Paginator
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from django.utils.timezone import now
 from django.db.models import Q, Count
 from django.urls import reverse
 from django.core.files.storage import default_storage
 
 from patients.models import Appointment, Status
-from .models import Blogs, Comments, Category
+from .models import Blogs, Comments, Category, Remainder
 from users.models import Doctors, Specialty
 
 User = get_user_model()
 
 @login_required(login_url='/login')
 def doctor_dashboard(request):
-    doctor = request.user.doctors
+    doctor = request.user.doctors  # Lấy thông tin bác sĩ hiện tại
 
-    total_blogs = Blogs.objects.filter(doctor=doctor).count()
-    published_blogs = Blogs.objects.filter(doctor=doctor, is_published=True).count()
-    draft_blogs = Blogs.objects.filter(doctor=doctor, is_published=False).count()
+    # Lấy ngày hiện tại và ngày cuối tuần
+    today = now().date()
+    end_of_week = today + timedelta(days=7)
 
-    total_appointments = Appointment.objects.filter(doctor=doctor).count()
-    accepted_appointments = Appointment.objects.filter(doctor=doctor, status__status='Accepted').count()
-    waited_appointments = Appointment.objects.filter(doctor=doctor, status__status='Waited').count()
-    cancelled_appointments = Appointment.objects.filter(doctor=doctor, status__status='Cancelled').count()
+    # Lấy trạng thái "Cancel"
+    cancel_status = Status.objects.get(status="Cancel")
 
-    current_month = date.today().month
-    appointments_per_day = Appointment.objects.filter(
-        doctor=doctor,
-        start_date__month=current_month
-    ).values('start_date').annotate(count=Count('start_date')).order_by('start_date')
+    # Lấy danh sách reminders liên quan đến bác sĩ hiện tại
+    # Chỉ hiển thị những cuộc hẹn từ ngày hiện tại đến tương lai
+    remainders = Remainder.objects.filter(
+        appointment__doctor=doctor,
+        date__range=[today, end_of_week],
+        date__gte=today  # Chỉ lấy những cuộc hẹn từ ngày hiện tại trở đi
+    ).exclude(appointment__status=cancel_status)
 
     return render(request, 'doctors/doctor_dashboard.html', {
-        'total_blogs': total_blogs,
-        'published_blogs': published_blogs,
-        'draft_blogs': draft_blogs,
-        'total_appointments': total_appointments,
-        'accepted_appointments': accepted_appointments,
-        'waited_appointments': waited_appointments,
-        'cancelled_appointments': cancelled_appointments,
-        'appointments_per_day': appointments_per_day,
+        'remainders': remainders,  # Chỉ reminders của bác sĩ hiện tại
     })
+
 
 @login_required(login_url='/login')
 def profile(request):
@@ -135,6 +130,7 @@ def doctor_blogs(request):
   }
 
   return render(request, 'doctors/doctor_blogs.html', context)
+
 
 @login_required(login_url='/login')
 def search_blogs(request):
@@ -264,6 +260,7 @@ def view_blog(request, blog_id):
 
     return render(request, 'doctors/view_blog.html', context)
 
+
 @login_required(login_url='/login')
 def post_comment(request):
   if request.method == 'POST':
@@ -322,35 +319,66 @@ def doctor_drafts(request):
 
 @login_required(login_url='/login')
 def view_appointments(request):
-  if request.method == 'POST':
-    status = request.POST.get("status")
-    app_id = request.POST.get("app")
+    if request.method == 'POST':
+        status = request.POST.get("status")
+        app_id = request.POST.get("app")
 
-    app = Appointment.objects.get(id=app_id)
-    status_id = Status.objects.get(status=status)
-    app.status = status_id
+        app = Appointment.objects.get(id=app_id)
+        status_id = Status.objects.get(status=status)
+        app.status = status_id
+        app.save()
+        
+        # Nếu status là "Cancel", xóa remainder tương ứng
+        if status == "Cancelled":
+            Remainder.objects.filter(appointment=app).delete()
+            
+        return redirect('view_appointments')  # Redirect để tránh form resubmission
 
-    app.save()
+    app = Appointment.objects.filter(doctor__user=request.user)
 
-  app = Appointment.objects.filter(doctor__user=request.user)
+    filter_status = request.GET.get('filter_status')
+    filter_date = request.GET.get('filter_date')
+    filter_patient_name = request.GET.get('filter_patient_name')
+    appointment_id = request.GET.get('appointment_id')
 
-  filter_status = request.GET.get('filter_status')
-  filter_date = request.GET.get('filter_date')
-  filter_patient_name = request.GET.get('filter_patient_name')
+    if filter_status and filter_status != 'All':
+        app = app.filter(status__status=filter_status)
 
-  if filter_status and filter_status != 'All':
-    app = app.filter(status__status=filter_status)
+    if filter_date:
+        app = app.filter(start_date=filter_date)
 
-  if filter_date:
-    app = app.filter(start_date=filter_date)
+    if filter_patient_name:
+        app = app.filter(patient__user__first_name__icontains=filter_patient_name)
+        
+    # Nếu có appointment_id được truyền vào từ URL (khi click "View" từ remainder)
+    highlighted_appointment = None
+    if appointment_id:
+        try:
+            highlighted_appointment = int(appointment_id)
+        except ValueError:
+            highlighted_appointment = None
 
-  if filter_patient_name:
-    app = app.filter(patient__user__first_name__icontains=filter_patient_name)
+    return render(request, "doctors/viewappointments.html", {
+        'appointments': app,
+        'filter_status': filter_status,
+        'filter_date': filter_date,
+        'filter_patient_name': filter_patient_name,
+        'highlighted_appointment': highlighted_appointment
+    })
 
-  return render(request, "doctors/viewappointments.html", {
-    'appointments': app,
-    'filter_status': filter_status,
-    'filter_date': filter_date,
-    'filter_patient_name': filter_patient_name
-  })
 
+@login_required(login_url='/login')
+def cancel_appointment(request, appointment_id):
+    # Lấy cuộc hẹn cần hủy
+    appointment = get_object_or_404(Appointment, id=appointment_id)
+
+    # Cập nhật trạng thái của cuộc hẹn thành "Cancel"
+    cancel_status = Status.objects.get(status="Cancel")
+    appointment.status = cancel_status
+    appointment.save()
+
+    # Xóa reminder tương ứng (nếu cần)
+    Remainder.objects.filter(appointment=appointment).delete()
+
+    messages.success(request, "Appointment has been canceled successfully.")
+    return redirect('doctor_dashboard')
